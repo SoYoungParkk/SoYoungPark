@@ -1,96 +1,71 @@
-"""
-from typing import Union
-
-from fastapi import FastAPI
+from fastapi import FastAPI, Depends, HTTPException
+from sqlalchemy.orm import Session
+from sqlalchemy import create_engine, Column, Interger, String
+from squlalchmy.ext.declarative import declarative_base
+from sqlalchemy.orm import sessionmaker
 from pydantic import BaseModel
-
-app = FastAPI()
-
-class Item(BaseModel):
-    name: str
-    price: float
-    is_offer: Union[bool, None] = None
-
-@app.get("/")
-def read_root():
-    return {"Hello": "World"}
-
-
-@app.get("/items/{item_id}")
-def read_item(item_id: int, q: Union[str, None] = None):
-    return {"item_id": item_id, "q": q}
-
-@app.post("/items/{item_id}")
-def update_item(item_id: int, item: Item):
-    return {"item_name": item.name, "item_id": item_id}
-
-
-
-"""
-"""
-
-from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel
-
-app = FastAPI()
-
-user_name = None
-
-class User(BaseModel):
-    name: str
-
-
-@app.get("/")
-def root():
-    return{ "message": "Hello Bosman!"}
-
-@app.get("/home")
-def home():
-    return { "message": "Bye Bosman!" }
-
-#####여기까지 저번주########
-
-
-@app.post("/user/")
-async def receive_user(user: User):
-    global user_name
-    user_name = user.name
-    return {"message": "User name received"}
-
-
-@app.get("/user/")
-async def get_user():
-    return {"user_name": user_name}
-
-@app.put("/user/")
-async def receive_user(user: User):
-    global user_name
-    user_name = user.name
-    return {"message": "User name changed"}
-
-
-@app.delete("/user/")
-async def del_user():
-    global user_name
-    user_name = "DELETED"
-    return {"message": "User name deleted"}
-
-"""
-
-from fastapi import FastAPI
 
 import requests
 
+
+SQLALCHEMY_DATABASE_URL = "sqlite:///../todo.db"
+engine = create_engine(SQLALCHEMY_DATABASE_URL, connect_args={"check_same_thread": False})
+SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+
+Base = declarative_base()
+
 app = FastAPI()
 
-@app.get("/")
-def root():
-    URL = "https://bigdata.kepco.co.kr/openapi/v1/powerUsage/industryType.do?year=2020&month=11&metroCd=11&cityCd=110&bizCd=C&apiKey=ergT0Yyea577o2lLp4COXsCi6x0dVh8yvr5bTQ6P&returnType=json"
 
-    contents = requests.get(URL).text
+class Todo(Base):
+    __tablename__ = "todos"
+    __allow_unmapped__ = True
 
-    return {"message": contents}
+    id = Column(Integer, primary_key=True, index=True)
+    title = Column(String, index=True)
+    description = Column(String, index=True)
 
-@app.get("/home")
-def home():
-    return {"message": "Home!"}
+Base.metadata.create_all(bind=engine)
+
+class TodoCreate(BaseModel):
+    title: str
+    description: str
+
+class TodoUpdate(BaseModel):
+    title: str
+    description: str
+
+
+@app.post("/todos/")
+def create_todo(todo: TodoCreate, db: Session = Depends(get_db)):
+    db_todo = Todo(title=todo.title, description=todo.description)
+    db.add(db_todo)
+    db.commit()
+    db.refresh(db_todo)
+    return db_todo
+
+@app.get("/todos/{todo_id}")
+def read_todo(todo_id: int, db: Session = Depends(get_db)):
+    db_todo = db.query(Todo).filter(Todo.id == todo_id).first()
+    if db_todo is None:
+        raise HTTPException(status_code=404, detail="Todo not found")
+    return db_todo
+
+@app.put("/todos/{todo_id}")
+def update_todo(todo_id: int, todo: TodoUpdate, db: Session = Depends(get_db)):
+    db_todo = db.query(Todo).filter(Todo.id == todo_id).first()
+    if db_todo is None:
+        raise HTTPException(status_code=404, detail="Todo not found")
+    db_todo.title = todo.title
+    db_todo.description = todo.description
+    db.commit()
+    return db_todo
+
+@app.delete("/todos/{todo_id}")
+def delete_todo(todo_id: int, db: Session = Depends(get_db)):
+    db_todo = db.query(Todo).filter(Todo.id == todo_id).first()
+    if db_todo is None:
+        raise HTTPException(status_code=404, detail="Todo not found")
+    db.delete(db_todo)
+    db.commit()
+    return {"ok": True}
